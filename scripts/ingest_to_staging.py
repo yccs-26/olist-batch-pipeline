@@ -5,6 +5,20 @@ import psycopg
 
 from args_parse import parse_args
 from dotenv import load_dotenv
+from botocore.exceptions import (
+    ConnectTimeoutError,
+    ConnectionClosedError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
+
 
 # logging 
 logging.basicConfig(
@@ -15,6 +29,19 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# S3 다운로드 함수에서 재시도할 예외 목록
+S3_RETRY_EXCEPTIONS = (
+    EndpointConnectionError,
+    ConnectTimeoutError,
+    ReadTimeoutError,
+    ConnectionClosedError,
+)
+
+# DB 재시도 예외 목록
+DB_RETRY_EXCEPTIONS = (
+    psycopg.OperationalError,
+    psycopg.InterfaceError,
+)
 
 # SQL ----------------------------------------------------------
 
@@ -140,7 +167,13 @@ def validate_env() -> tuple[dict, str, str]:
     return db_params, bucket, aws_region
 
 
-# S3 다운로드
+@retry(
+    retry=retry_if_exception_type(S3_RETRY_EXCEPTIONS),
+    wait=wait_random_exponential(multiplier=1, max=16),
+    stop=stop_after_attempt(4),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 def fetch_s3_csv(s3_client, bucket: str, s3_key: str,) -> str:
 
     logger.info(
@@ -166,6 +199,13 @@ def fetch_s3_csv(s3_client, bucket: str, s3_key: str,) -> str:
     return csv_text
 
 
+@retry(
+    retry=retry_if_exception_type(DB_RETRY_EXCEPTIONS),
+    wait=wait_random_exponential(multiplier=1, max=16),
+    stop=stop_after_attempt(4),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 def load_to_staging(
         db_params: dict,
         csv_text: str,
