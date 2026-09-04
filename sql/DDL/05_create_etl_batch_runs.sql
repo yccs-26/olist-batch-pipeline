@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS etl_batch_runs (
     finished_at TIMESTAMPTZ,
 
     status TEXT NOT NULL,
+
+    source_rows BIGINT,
     temp_rows BIGINT,
     deleted_rows BIGINT,
     inserted_rows BIGINT,

@@ -3,10 +3,14 @@ import os
 import sys
 import time
 
+from datetime import datetime, timezone
+from uuid import uuid4
+
 import psycopg
 from dotenv import load_dotenv
 
 from args_parse import parse_args
+
 
 # logging
 logging.basicConfig(
@@ -242,6 +246,35 @@ FROM tmp_classified_orders
 WHERE rejection_reason IS NOT NULL
 """
 
+insert_success_audit_sql = """
+INSERT INTO etl_batch_runs (
+    run_id,
+    pipeline_name,
+    batch_year,
+    batch_month,
+    started_at,
+    finished_at,
+    status,
+    source_rows,
+    deleted_rows,
+    clean_rows,
+    quarantine_rows
+)
+VALUES (
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s
+)
+"""
+
 def validate_env() -> dict:
     required_env_names = [
         "POSTGRES_HOST",
@@ -283,6 +316,9 @@ def main() -> None:
     db_params = validate_env()
 
     batch_started_at = time.perf_counter()
+
+    run_id = uuid4()
+    run_started_at = datetime.now(timezone.utc)
 
     try:
         logger.info(
@@ -395,6 +431,33 @@ def main() -> None:
             "clean 배치 성공 | batch_date=%s | elapsed_seconds=%.2f",
             args.batch_date,
             elapsed_seconds,
+        )
+
+        run_finished_at = datetime.now(timezone.utc)
+
+        with psycopg.connect(**db_params) as audit_conn:
+            with audit_conn.transaction():
+                with audit_conn.cursor() as audit_cur:
+                    audit_cur.execute(
+                        insert_success_audit_sql,
+                        (
+                            run_id,
+                            "clean_orders",
+                            year,
+                            month,
+                            run_started_at,
+                            run_finished_at,
+                            "success",
+                            source_rows,
+                            deleted_clean_rows + deleted_quarantine_rows,
+                            inserted_clean_rows,
+                            inserted_quarantine_rows,
+                        )
+                    )
+
+        logger.info(
+            "clean audit 기록 완료 | run_id=%s | status=success",
+            run_id,
         )
 
     except Exception:
