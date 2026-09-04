@@ -2,7 +2,7 @@
 __pycache__/
 *.py[oc]
 *.egg-info
-
+logs/
 
 # Virtual environments
 .venv

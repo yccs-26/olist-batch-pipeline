@@ -166,7 +166,7 @@ def validate_env() -> tuple[dict, str, str]:
 
     return db_params, bucket, aws_region
 
-
+# reraise=False로 설정 시, 프로세스가 정상 종료되었다고 표시되면서 성공 처리되어 문제가 발생할 수 있다.
 @retry(
     retry=retry_if_exception_type(S3_RETRY_EXCEPTIONS),
     wait=wait_random_exponential(multiplier=1, max=16),
@@ -307,3 +307,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+

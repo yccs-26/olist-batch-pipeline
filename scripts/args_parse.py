@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
 
     return args
 
-# * test
+# # * test
 # if __name__ == "__main__":
 #     args = parse_args()
 
