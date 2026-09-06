@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -275,6 +276,29 @@ VALUES (
 )
 """
 
+insert_failed_audit_aql = """
+INSERT INTO etl_batch_runs (
+    run_id,
+    pipeline_name,
+    batch_year,
+    batch_month,
+    started_at,
+    finished_at,
+    status,
+    error_message
+)
+VALUES (
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+    %s,
+)
+"""
+
 def validate_env() -> dict:
     required_env_names = [
         "POSTGRES_HOST",
@@ -460,11 +484,48 @@ def main() -> None:
             run_id,
         )
 
-    except Exception:
+    except Exception as e:
+        run_finished_at = datetime.now(timezone.utc)
+
+        error_message = "".join(
+            traceback.format_exception_only(e)
+        ).strip()
+
         logger.exception(
-            "clean 배치 실패 | batch_date=%s",
-            args.batch_date
+            "clean 배치 실패 | batch_date=%s | run_id=%s",
+            args.batch_date,
+            run_id,
         )
+
+        try:
+            with psycopg.connect(**db_params) as audit_conn:
+                with audit_conn.transaction():
+                    with audit_conn.cursor() as audit_cur:
+                        audit_cur.execute(
+                            insert_failed_audit_aql,
+                            (
+                            run_id,
+                            "clean_orders",
+                            year,
+                            month,
+                            run_started_at,
+                            run_finished_at,
+                            "failed",
+                            error_message,
+                            ),
+                        )
+
+            logger.info(
+                "clean 실패 audit 기록 완료 | run_id=%s | status=failed",
+                run_id,
+            )
+
+        except Exception:
+            logger.exception(
+                "clean 실패 audit 기록 실패 | run_id=%s",
+                run_id,
+            )
+
         raise
 
 if __name__ == "__main__":
